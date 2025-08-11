@@ -1,8 +1,11 @@
 import os
 import io
 from typing import Any, cast
-import plotly.io as pio
 import streamlit as st
+try:
+    import plotly.io as pio  # type: ignore
+except ModuleNotFoundError:
+    pio = None  # type: ignore
 import pandas as pd
 from dotenv import load_dotenv
 
@@ -17,7 +20,16 @@ from modules.utils import (
     suggest_column_mapping,
     apply_column_mapping,
 )
-from modules.attendance_check import detect_attendance_anomalies, plot_attendance_overview
+try:
+    from modules.attendance_check import (
+        detect_attendance_anomalies,
+        plot_attendance_overview,
+    )
+    _attendance_ok = True
+except Exception as _att_err:  # noqa: F841
+    detect_attendance_anomalies = None  # type: ignore
+    plot_attendance_overview = None  # type: ignore
+    _attendance_ok = False
 from modules.ai_comment import generate_comment
 from modules.report import build_pdf_attrition, build_pdf_attendance
 
@@ -29,7 +41,8 @@ st.caption("AI＋Pythonで、離職リスク予測と勤怠異常検知を自動
 st.caption("⚙ 設定は左側のサイドバーから開閉できます（画面上部のアイコン）。")
 
 # 軽いテーマ調整（Plotlyとカード風スタイル）
-pio.templates.default = "plotly_white"
+if pio is not None:
+    pio.templates.default = "plotly_white"
 st.markdown(
     """
     <style>
@@ -306,6 +319,11 @@ with tab1:
 
 with tab2:
     st.subheader("勤怠異常検知")
+    if not _attendance_ok:
+        st.error(
+            "Plotly が見つからないため、このタブを表示できません。リポジトリ直下の requirements.txt に plotly を含め、Streamlit Cloud の Manage app → Clear cache → Reboot を実行してください。"
+        )
+        st.stop()
     st.write("必須カラム例：社員ID, 日付(YYYY-MM-DD), 勤務時間h, 残業時間h")
     att_up = st.file_uploader("勤怠データ (CSV/Excel)", type=["csv","xlsx","xls","xlsm"], key="attendance")
     use_sample_att = st.button("サンプルを読み込む", key="load_att_sample")
@@ -344,6 +362,9 @@ with tab2:
             st.stop()
 
         with st.spinner("異常検知中..."):
+            if detect_attendance_anomalies is None:
+                st.error("内部エラー: 異常検知モジュールが利用できません。依存関係の再インストールをお試しください。")
+                st.stop()
             anomalies, overview_fig = detect_attendance_anomalies(
                 att_df,
                 z_thresh=float(att_z_thr),
